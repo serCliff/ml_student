@@ -1,0 +1,341 @@
+---
+title: "Clasificación Binaria"
+subtitle: "Estudiantes de Portugués"
+author: "Sergio Del Castillo Baranda"
+date: "4/10/2020"
+output: pdf_document
+---
+
+
+# Carga de los datos y librerías
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readtext)
+library(gplots)
+library(dummies)
+library(dplyr)
+library(bnpa)
+library(MASS)
+library(NeuralNetTools)
+library(caret)
+```
+
+
+``` {r}
+students.csv <- file.path(getwd(), 'student-por.csv')
+STUDENTS <- read.csv2(file = students.csv, header = TRUE, sep = ';')
+
+summary(STUDENTS)
+```
+
+
+# SELECCIÓN DE VARIABLES
+
+El objetivo de este apartado es obtener las mejores variables que nos permitan optimizar nuestro modelos. El trabajo lo realizaremos en dos fases, una fase inicial en la que vamos a realizar una limpieza de datos para obtener un dataset con el que podamos generar un modelo y en segundo lugar lo que realizaremos selección de las  mejores variables para optimizar nuestro modelo.
+
+
+#### LIMPIEZA DE NA
+No realizamos supresión de NA dado que no hay ninguno en el fichero.
+
+``` {r}
+check.na(STUDENTS)
+```
+
+Para comenzar a trabajar con las variables vamos a hacer una selección en función del tipo de variable que es, a continuación trabajaremos con las variables de forma diferente en función de la clase de variable que sea. 
+
+Lo primero que haremos será la selección de la variable objetivo (higher) y la separamos del dataset. A continuación, haremos una subdivisión de las columnas restantes entre continuas y categóricas almacenando los nombres de las columnas en dos variables.
+
+``` {r}
+vardep <- "higher"
+students.bis <- STUDENTS[,-which(names(STUDENTS) == vardep)]
+
+continuas <- names(select_if(students.bis, is.integer))
+categoricas <- names(select_if(students.bis, is.factor))
+
+
+cat("Nuestra variable objetivo será: ",vardep, "\n\nVariables continuas: ",continuas, "\n\nVariables categoricas: ",categoricas)
+```
+
+#### CREACIÓN DE VARIABLES DUMMY
+
+Generamos variables dummy a partir de nuestras variables categóricas. En nuestro caso lo realizamos de todas dado que las variables categóricas no contienen un número demasiado elevado de valores diferentes.
+
+``` {r echo=FALSE}
+students.df<- dummy.data.frame(STUDENTS, categoricas, sep = ".")
+```
+
+
+#### ESTANDARIZACIÓN DE VARIABLES
+
+A continuación estandarizamos las variables continuas. Para ello realizamos la media y desviación típica de las contínuas y a continuación las estandarizamos. Para trabajar ahora con todas las variables como continuas, las uno a las variables dummy generadas en el paso anterior.
+
+```{r}
+
+means <- apply(students.df[,continuas],2,mean) 
+sds <- sapply(students.df[,continuas],sd) 
+
+
+students.df.bis <- scale(students.df[,continuas], center = means, scale = sds)
+numerocont <- which(colnames(students.df) %in% continuas)
+students.df.s <- cbind(students.df.bis, students.df[,-numerocont])
+```
+
+
+#### SELECCIÓN DE VARIABLES
+
+El primer paso en la selección de las variables es suprimir de las variables dummy una variable, dado que esta puede ser obtenida como una negación del resto de las variables.
+
+
+``` {r}
+continuas <- c("age", "Medu", "Fedu", "traveltime", "studytime", "failures", 
+"famrel", "freetime", "goout", "Dalc", "Walc", "health", "absences", 
+"G1", "G2", "G3", "school.GP", "sex.M", 
+"address.R", "famsize.GT3", "Pstatus.A", 
+"Mjob.health", "Mjob.other", "Mjob.services", 
+"Mjob.teacher", "Fjob.health", "Fjob.other", 
+"Fjob.services", "Fjob.teacher", "reason.course", "reason.home", 
+"reason.reputation", "guardian.father", "guardian.mother", 
+"schoolsup.yes", 
+"famsup.yes", "paid.yes", "activities.yes", 
+"nursery.yes", "higher", "internet.yes", 
+"romantic.yes")
+
+categoricas <- c("")
+
+
+numerocont <- which(colnames(students.df.s) %in% continuas)
+students.df.s <- students.df.s[,numerocont]
+
+
+students.df.s$higher<-ifelse(students.df.s$higher=="yes","Yes","No") # Corrección de los datos para que se ajusten a los requisitos de los métodos que se aplicarán
+
+cat("Variables continuas: ",continuas, "\n\nVariables categoricas: ",categoricas)
+```
+
+##### SELECCIÓN DE VARIABLES EN CLASIFICACIÓN BINARIA LOGÍSTICA
+
+Para la selección de variables hacemos la búsqueda mediante el uso de la medida de ajuste AIC. Para ejecutar los algoritmos lo realizaremos mediante el método stepwise que que va incluyendo y sacando variables con el objetivo de optimizar la selección.
+
+
+``` {r}
+full<-glm(factor(higher)~., data=students.df.s, family = binomial(link="logit"))
+null<-glm(factor(higher)~1, data=students.df.s, family = binomial(link="logit"))
+
+seleccion<-stepAIC(null,scope=list(upper=full),direction="both")
+
+variables <- names(seleccion$coefficients)[-1]
+cat("\n\nLa mejor selección de variables viene dada por: ", variables)
+```
+
+
+## GENERACIÓN DE LOS SETS DE DATOS (train, test / Validación cruzada)
+
+En el anterior apartado hemos obtenido las mejores variables para poder generar nuestros modelos. En este apartado lo que vamos a realizar es una división de los datos en dos sets, uno para la parte de test y otro para la parte de entrenamiento del modelo. El objetivo es utilizar el set de entrenamiento para entrenar nuestro modelo y prepararlo para la predicción y realizar pruebas para comprobar la eficacia con la que es capaz de predecir sobre nuestro set de test.
+
+La validación de los datos la realizaremos mediante validación cruzada que lo que realiza es la selección del mejor conjunto de datos que formarán parte de cada set mediante la comprobación redundante de diferentes escenarios de manera que los datos que queden en un set y otro estén lo más balanceados posible.
+
+Utilizaremos validación cruzada repetida dado que únicamente tenemos un set de 500 filas de datos. La generación de los sets de train y test se realiza 4 veces
+``` {r}
+set.seed(1234)
+control<-trainControl(method = "repeatedcv",number=4,savePredictions = "all") 
+
+
+```
+
+## COMPARACIÓN DE MODELOS
+#### MODELO CON REGRESIÓN LINEAL
+
+Modelo con regresión lineal, este no tendrá rejilla porque no tiene hiperparámetros.
+
+``` {r}
+reg<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
+                data=students.df.s,
+                method="glm",
+                trControl=control,
+                trace=FALSE)
+reg
+
+```
+
+#### MODELO CON RED NEURONAL
+
+Ahora vamos a generar un modelo con redes neuronales. Para comprobar su eficacia realizaremos diferentes tuneos hasta obtener el mejor resultado. La forma que tenemos de realizar el tuneado mediante el uso de una rejilla.
+
+``` {r}
+nnetgrid <-  expand.grid(size=c(1,2,3,5,10),
+                         decay=c(0.01,0.1,0.001),
+                         bag=FALSE)
+
+rednnet<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
+                data=students.df.s,
+                method="avNNet",linout = FALSE,
+                maxit=100,
+                trControl=control,
+                tuneGrid=nnetgrid,
+                repeats=5,
+                trace=FALSE)
+rednnet
+
+
+bestTuneNnet <- function(nnetmodel){
+  bestSize <- rednnet$bestTune$size
+  bestDecay <- rednnet$bestTune$decay
+  nnetmodel$results[nnetmodel$results$size == bestSize & nnetmodel$results$decay == bestDecay,]
+}
+```
+
+Comparamos la precisión de las redes neuronales frente a la regresión lineal
+
+``` {r}
+nnettune <- bestTuneNnet(rednnet)
+
+comparation <- data.frame("Model" = c(reg$method, rednnet$method), "Accuracy" = c(reg$results$Accuracy, nnettune$Accuracy))
+
+comparation[order(comparation$Accuracy, decreasing = TRUE),]
+
+```
+
+#### RANDOM FOREST
+
+
+``` {r}
+set.seed(1234)
+rfgrid<-expand.grid(mtry=c(2,3,4,5,6))
+
+rf<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
+           data=students.df.s,
+           method="rf",
+           trControl=control,
+           tuneGrid=rfgrid,
+           linout = FALSE,ntree=300,nodesize=10,
+           replace=TRUE,
+           importance=TRUE,
+           trace=FALSE)
+
+rf$bestTune
+
+bestTuneRf <-  function(rfmodel){
+  rfmodel$results[rfmodel$results$mtry == rfmodel$bestTune$mtry,]  
+}
+
+```
+
+
+Lo comparamos con los modelos anteriores
+
+```{r}
+rftune <- bestTuneRf(rf)
+
+comparation <- rbind(comparation, data.frame("Model" = rf$method, "Accuracy" = rftune$Accuracy)) 
+comparation[order(comparation$Accuracy, decreasing = TRUE),]
+```
+
+
+# VOY POR AQUÍ, FALTA SEGUIR AJUSTANDO LOS MODELOS PARA METER LOS TUNEOS OBTENIDOS EN EL SIGUIENTE APARTADO
+
+## PREPARACIÓN DE MODELOS PARA ENSAMBLADO
+``` {r}
+source ("cruzadas avnnet y log binaria.R")
+source ("cruzada arbolbin.R")
+source ("cruzada rf binaria.R")
+source ("cruzada gbm binaria.R")
+source ("cruzada xgboost binaria.R")
+source ("cruzada SVM binaria lineal.R")
+source ("cruzada SVM binaria polinomial.R")
+source ("cruzada SVM binaria RBF.R")
+
+
+logi<-cruzadalogistica(data=students.df.s,
+ vardep=vardep,listconti=variables,
+ listclass=c(""), grupos=4,sinicio=1234,repe=5)
+
+logi$modelo="Logística"
+
+
+# Tuneamos con los datos obtenidos en el ajuste anterior
+avnet<-cruzadaavnnetbin(data=students.df.s,
+ vardep=vardep,listconti=variables,
+ listclass=c(""), grupos=4,sinicio=1234,repe=5,
+ size=c(nnettune$size),decay=c(nnettune$decay))
+
+avnet$modelo="AvNet"
+
+
+arbol<-cruzadaarbolbin(data=students.df.s,
+ vardep=vardep,listconti=variables,
+ listclass=c(""), grupos=4,sinicio=1234,repe=5)
+
+arbol$modelo="Árbol"
+
+
+bag<-cruzadarfbin(data=students.df.s,
+  vardep=vardep,listconti=variables,
+  listclass=c(""),
+  grupos=4,sinicio=1234,repe=5,nodesize=10,
+  ntree=1000,replace=TRUE,
+  mtry=rftune$mtry)
+
+bag$modelo="Bag"
+
+
+rf<-cruzadarfbin(data=students.df.s, vardep=vardep,
+ listconti=variables, listclass=c(""),
+ grupos=4,sinicio=1234,repe=5,nodesize=10,
+ mtry=6,ntree=3000,replace=TRUE,sampsize=150)
+
+rf$modelo="RF"
+
+
+gbm<-cruzadagbmbin(data=students.df.s,
+ vardep=vardep,listconti=variables,
+listclass=c(""),
+  grupos=4,sinicio=1234,repe=5,
+n.minobsinnode=20,shrinkage=0.10,n.trees=500,interaction.depth=2)
+
+gbm$modelo="gbm"
+
+
+xgbm<-cruzadaxgbmbin(data=students.df.s,
+ vardep=vardep,listconti=variables,
+listclass=c(""),
+  grupos=4,sinicio=1234,repe=5,
+   min_child_weight=20,eta=0.1,nrounds=500,max_depth=2,
+  gamma=0,colsample_bytree=1,subsample=1)
+
+xgbm$modelo="xgbm"
+
+svm<-cruzadaSVMbin(data=students.df.s,
+ vardep=vardep,listconti=variables,
+listclass=c(""),
+  grupos=4,sinicio=1234,repe=5,C=0.01)
+
+svm$modelo="SVM"
+
+
+svmp<-cruzadaSVMbinPoly(data=students.df.s,
+ vardep=vardep,listconti=variables,
+listclass=c(""),
+  grupos=4,sinicio=1234,repe=5,C=2,degree=3,scale=0.1)
+
+svmp$modelo="SVMPoly"
+
+
+svmrbf<-cruzadaSVMbinRBF(data=students.df.s, vardep=vardep,
+   listconti=variables,
+ listclass=c(""),
+  grupos=4,sinicio=1234,repe=5,
+  C=1,sigma=0.1)
+
+svmrbf$modelo="SVMRBF"
+
+
+
+union<-rbind(logi,avnet,arbol,bag,rf, gbm, xgbm, svm, svmp, svmrbf)
+
+par(cex.axis=0.6, cex=1, las=1)
+boxplot(data=union,tasa~modelo,main="TASA FALLOS")
+boxplot(data=union,auc~modelo,main="AUC")
+
+```
+
