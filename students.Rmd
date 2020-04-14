@@ -138,9 +138,7 @@ La validación de los datos la realizaremos mediante validación cruzada que lo 
 Utilizaremos validación cruzada repetida dado que únicamente tenemos un set de 500 filas de datos. La generación de los sets de train y test se realiza 4 veces
 ``` {r}
 set.seed(1234)
-control<-trainControl(method = "repeatedcv",number=4,savePredictions = "all") 
-
-
+control<-trainControl(method = "repeatedcv",number=4,savePredictions = "all")
 ```
 
 ## COMPARACIÓN DE MODELOS
@@ -155,7 +153,6 @@ reg<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+
                 trControl=control,
                 trace=FALSE)
 reg
-
 ```
 
 #### MODELO CON RED NEURONAL
@@ -174,30 +171,26 @@ rednnet<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.hea
                 trControl=control,
                 tuneGrid=nnetgrid,
                 repeats=5,
+                verbose=FALSE,
                 trace=FALSE)
 rednnet
 
 
-bestTuneNnet <- function(nnetmodel){
+bestTuneNnet <- function(nnetmodel, size=FALSE, decay=FALSE){
+  # Función que ayuda a obtener el mejor resultado obtenido en un modelo NEURAL NET
   bestSize <- rednnet$bestTune$size
   bestDecay <- rednnet$bestTune$decay
-  nnetmodel$results[nnetmodel$results$size == bestSize & nnetmodel$results$decay == bestDecay,]
+  # Cojo los parámetros de la función si están establecidos
+  if (size != FALSE) {bestSize <- size}
+  if (decay != FALSE) {bestDecay <- decay}
+  nnetmodel$results[nnetmodel$results$size == bestSize & 
+                      nnetmodel$results$decay == bestDecay,]
 }
 ```
 
-Comparamos la precisión de las redes neuronales frente a la regresión lineal
 
-``` {r}
-nnettune <- bestTuneNnet(rednnet)
-
-comparation <- data.frame("Model" = c(reg$method, rednnet$method), "Accuracy" = c(reg$results$Accuracy, nnettune$Accuracy))
-
-comparation[order(comparation$Accuracy, decreasing = TRUE),]
-
-```
 
 #### RANDOM FOREST
-
 
 ``` {r}
 set.seed(1234)
@@ -213,23 +206,140 @@ rf<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+s
            importance=TRUE,
            trace=FALSE)
 
-rf$bestTune
+rf
 
-bestTuneRf <-  function(rfmodel){
-  rfmodel$results[rfmodel$results$mtry == rfmodel$bestTune$mtry,]  
+bestTuneRf <-  function(rfmodel, mtry=FALSE){
+  # Función que ayuda a obtener el mejor resultado obtenido en un modelo RANDOM FOREST
+  bMtry <- rfmodel$bestTune$mtry
+  # Cojo los parámetros de la función si están establecidos
+  if (mtry != FALSE) {bMtry <- mtry}
+  rfmodel$results[rfmodel$results$mtry == bMtry,]  
+}
+
+```
+
+#### GRADIENT BOOSTING
+
+``` {r}
+set.seed(1234)
+gbmgrid<-expand.grid(shrinkage=c(0.1,0.05,0.01),
+                     n.minobsinnode=c(10,20),
+                     n.trees=c(100,500,1000),
+                     interaction.depth=c(1,2,3))
+
+gbm<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
+            data=students.df.s,
+            method="gbm",
+            trControl=control,
+            tuneGrid=gbmgrid,
+            distribution="bernoulli", 
+            bag.fraction=1,
+            verbose=FALSE)
+
+gbm
+
+
+bestTuneGbm <-  function(gbmModel, n.trees=FALSE, shrinkage=FALSE, n.minobsinnode=FALSE, interaction.depth=FALSE){
+  # Función que ayuda a obtener el mejor resultado obtenido en un modelo GRADIENT BOOSTING MACHINE
+  bTrees <- gbmModel$bestTune$n.trees
+  bShrink <- gbmModel$bestTune$shrinkage
+  bMin <- gbmModel$bestTune$n.minobsinnode
+  bInt <- gbmModel$bestTune$interaction.depth
+  # Cojo los parámetros de la función si están establecidos
+  if (n.trees != FALSE) {bTrees <- n.trees}
+  if (shrinkage != FALSE) {bShrink <- shrinkage}
+  if (n.minobsinnode != FALSE) {bMin <- n.minobsinnode}
+  if (interaction.depth != FALSE) {bInt <- interaction.depth}
+  #Devuelve el mejor resultado para los parámetros introducidos
+  gbmModel$results[gbmModel$results$n.trees == bTrees & 
+                     gbmModel$results$shrinkage == bShrink & 
+                     gbmModel$results$n.minobsinnode == bMin & 
+                     gbmModel$results$interaction.depth == bInt,]  
 }
 
 ```
 
 
-Lo comparamos con los modelos anteriores
 
-```{r}
+#### XGBOOST
+
+``` {r}
+set.seed(1234)
+xgbmgrid<-expand.grid(
+  min_child_weight=c(10),
+  eta=c(0.1,0.05,0.03,0.01),
+  nrounds=c(100,500,1000),
+  max_depth=6,gamma=0,colsample_bytree=1,subsample=1)
+
+xgbm<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
+             data=students.df.s,
+             method="xgbTree",
+             trControl=control,
+             tuneGrid=xgbmgrid,
+             verbose=FALSE)
+
+xgbm
+
+
+bestTuneXgbm <-  function(XgbmModel, 
+                          nrounds = FALSE, 
+                          max_depth = FALSE, 
+                          eta = FALSE, 
+                          gamma = FALSE, 
+                          colsample_bytree = FALSE, 
+                          min_child_weight = FALSE, 
+                          subsample = FALSE){
+  
+  # Función que ayuda a obtener el mejor resultado obtenido en un modelo XGBOOST
+  
+  bnrounds <- XgbmModel$bestTune$nrounds
+  bmax_depth <- XgbmModel$bestTune$max_depth
+  beta <- XgbmModel$bestTune$eta
+  bgamma <- XgbmModel$bestTune$gamma
+  bcolsample_bytree <- XgbmModel$bestTune$colsample_bytree
+  bmin_child_weight <- XgbmModel$bestTune$min_child_weight
+  bsubsample <- XgbmModel$bestTune$subsample
+  
+  # Cojo los parámetros de la función si están establecidos
+  if (nrounds != FALSE) { bnrounds <- nrounds }
+  if (max_depth != FALSE) { bmax_depth <- max_depth }
+  if (eta != FALSE) { beta <- eta }
+  if (gamma != FALSE) { bgamma <- gamma }
+  if (colsample_bytree != FALSE) { bcolsample_bytree <- colsample_bytree }
+  if (min_child_weight != FALSE) { bmin_child_weight <- min_child_weight }
+  if (subsample != FALSE) { bsubsample <- subsample }
+  
+  #Devuelve el mejor resultado para los parámetros introducidos
+  XgbmModel$results[XgbmModel$results$nrounds == bnrounds &
+                      XgbmModel$results$max_depth == bmax_depth &
+                      XgbmModel$results$eta == beta &
+                      XgbmModel$results$gamma == bgamma &
+                      XgbmModel$results$colsample_bytree == bcolsample_bytree &
+                      XgbmModel$results$min_child_weight == bmin_child_weight &
+                      XgbmModel$results$subsample == bsubsample,]
+}
+
+```
+
+
+
+
+
+Realizamos una comparativa de la precisión todos los modelos anteriores
+
+``` {r}
+nnettune <- bestTuneNnet(rednnet)
 rftune <- bestTuneRf(rf)
+gbmtune <- bestTuneGbm(gbm)
+xgbmtune <- bestTuneXgbm(xgbm)
 
-comparation <- rbind(comparation, data.frame("Model" = rf$method, "Accuracy" = rftune$Accuracy)) 
+models = c(reg$method, rednnet$method, rf$method, gbm$method, xgbm$method)
+accuracies = c(reg$results$Accuracy, nnettune$Accuracy, rftune$Accuracy, gbmtune$Accuracy, xgbmtune$Accuracy)
+  
+comparation <- data.frame("Model" = models, "Accuracy" = accuracies)
 comparation[order(comparation$Accuracy, decreasing = TRUE),]
 ```
+
 
 
 # VOY POR AQUÍ, FALTA SEGUIR AJUSTANDO LOS MODELOS PARA METER LOS TUNEOS OBTENIDOS EN EL SIGUIENTE APARTADO
@@ -288,20 +398,28 @@ rf$modelo="RF"
 
 
 gbm<-cruzadagbmbin(data=students.df.s,
- vardep=vardep,listconti=variables,
-listclass=c(""),
+  vardep=vardep,listconti=variables,
+  listclass=c(""),
   grupos=4,sinicio=1234,repe=5,
-n.minobsinnode=20,shrinkage=0.10,n.trees=500,interaction.depth=2)
+  n.minobsinnode=gbmtune$n.minobsinnode,
+  shrinkage=gbmtune$shrinkage,
+  n.trees=gbmtune$n.trees,
+  interaction.depth=gbmtune$interaction.depth)
 
 gbm$modelo="gbm"
 
 
 xgbm<-cruzadaxgbmbin(data=students.df.s,
  vardep=vardep,listconti=variables,
-listclass=c(""),
+  listclass=c(""),
   grupos=4,sinicio=1234,repe=5,
-   min_child_weight=20,eta=0.1,nrounds=500,max_depth=2,
-  gamma=0,colsample_bytree=1,subsample=1)
+  min_child_weight=xgbmtune$min_child_weight,
+  eta=xgbmtune$eta,
+  nrounds=xgbmtune$nrounds,
+  max_depth=xgbmtune$max_depth,
+  gamma=xgbmtune$gamma,
+  colsample_bytree=xgbmtune$colsample_bytree,
+  subsample=xgbmtune$subsample)
 
 xgbm$modelo="xgbm"
 
