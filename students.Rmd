@@ -122,10 +122,10 @@ Para la selección de variables hacemos la búsqueda mediante el uso de la medid
 full<-glm(factor(higher)~., data=students.df.s, family = binomial(link="logit"))
 null<-glm(factor(higher)~1, data=students.df.s, family = binomial(link="logit"))
 
-seleccion<-stepAIC(null,scope=list(upper=full),direction="both")
+seleccion<-stepAIC(null,scope=list(upper=full),direction="both", trace=0)
 
 variables <- names(seleccion$coefficients)[-1]
-cat("\n\nLa mejor selección de variables viene dada por: ", variables)
+cat("La mejor selección de variables viene dada por: ", variables)
 ```
 
 
