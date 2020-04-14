@@ -346,14 +346,14 @@ comparation[order(comparation$Accuracy, decreasing = TRUE),]
 
 ## PREPARACIÓN DE MODELOS PARA ENSAMBLADO
 ``` {r}
-source ("cruzadas avnnet y log binaria.R")
-source ("cruzada arbolbin.R")
-source ("cruzada rf binaria.R")
-source ("cruzada gbm binaria.R")
-source ("cruzada xgboost binaria.R")
-source ("cruzada SVM binaria lineal.R")
-source ("cruzada SVM binaria polinomial.R")
-source ("cruzada SVM binaria RBF.R")
+source ("library/cruzadas avnnet y log binaria.R")
+source ("library/cruzada arbolbin.R")
+source ("library/cruzada rf binaria.R")
+source ("library/cruzada gbm binaria.R")
+source ("library/cruzada xgboost binaria.R")
+source ("library/cruzada SVM binaria lineal.R")
+source ("library/cruzada SVM binaria polinomial.R")
+source ("library/cruzada SVM binaria RBF.R")
 
 
 logi<-cruzadalogistica(data=students.df.s,
