@@ -188,20 +188,39 @@ bestTuneNnet <- function(nnetmodel, size=FALSE, decay=FALSE){
 }
 ```
 
+#### BAGGING
 
+``` {r}
+set.seed(1234)
+baggrid<-expand.grid(mtry=c(11)) # El número de variables independientes
+
+bag<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
+           data=students.df.s,
+           method="rf",
+           trControl=control,
+           tuneGrid=baggrid,
+           linout=FALSE,
+           nodesize=10,
+           ntree=5000,
+           sampsize=200,
+           replace=TRUE,
+           trace=FALSE)
+bag
+
+```
 
 #### RANDOM FOREST
 
 ``` {r}
 set.seed(1234)
-rfgrid<-expand.grid(mtry=c(2,3,4,5,6))
+rfgrid<-expand.grid(mtry=seq(3, 11, by = 2))
 
 rf<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
            data=students.df.s,
            method="rf",
            trControl=control,
            tuneGrid=rfgrid,
-           linout = FALSE,ntree=300,nodesize=10,
+           linout = FALSE,ntree=5000,nodesize=10,
            replace=TRUE,
            importance=TRUE,
            trace=FALSE)
@@ -321,7 +340,96 @@ bestTuneXgbm <-  function(XgbmModel,
 
 ```
 
+#### SUPPORT VECTOR MACHINE - LINEAR
 
+``` {r}
+set.seed(1234)
+
+SVMgrid<-expand.grid(C=c(0.01,0.1,0.2,0.3,0.5,1,2))
+
+SVMl<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
+            data=students.df.s,
+            method="svmLinear",
+            trControl=control,
+            tuneGrid=SVMgrid,
+            verbose=FALSE)
+
+SVMl
+
+
+bestTuneSVMl <-  function(svmlmodel, C=FALSE){
+  # Función que ayuda a obtener el mejor resultado obtenido en un modelo SUPPORT VECTOR MACHINE - LINEAR
+  bC <- svmlmodel$bestTune$C
+  # Cojo los parámetros de la función si están establecidos
+  if (C != FALSE) {bC <- C}
+  svmlmodel$results[svmlmodel$results$C == bC,]  
+}
+
+```
+
+#### SUPPORT VECTOR MACHINE - POLYNOMIAL
+
+``` {r}
+set.seed(1234)
+SVMgrid<-expand.grid(degree=c(1,2,3),
+                     scale=c(5:7),
+                     C=c(3:6))
+
+
+SVMp<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
+            data=students.df.s,
+            method="svmPoly",
+            trControl=control,
+            tuneGrid=SVMgrid,
+            verbose=FALSE)
+SVMp
+
+
+bestTuneSVMp <-  function(svmpmodel, degree=FALSE, scale=FALSE, C=FALSE){
+  # Función que ayuda a obtener el mejor resultado obtenido en un modelo SUPPORT VECTOR MACHINE - POLYNOMIAL
+  bDegree <- svmpmodel$bestTune$degree
+  bScale <- svmpmodel$bestTune$scale
+  bC <- svmpmodel$bestTune$C
+  # Cojo los parámetros de la función si están establecidos
+  if (degree != FALSE) {bDegree <- degree}
+  if (scale != FALSE) {bScale <- scale}
+  if (C != FALSE) {bC <- C}
+  svmpmodel$results[svmpmodel$results$degree == bDegree &
+                      svmpmodel$results$scale == bScale &
+                      svmpmodel$results$C == bC,]  
+}
+
+```
+
+
+#### SUPPORT VECTOR MACHINE - RADIAL
+
+``` {r}
+set.seed(1234)
+SVMgrid<-expand.grid(sigma=c(0.01,0.05,0.1,1),
+                     C=c(1:5))
+
+SVMr<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
+            data=students.df.s,
+            method="svmRadial",
+            trControl=control,
+            tuneGrid=SVMgrid,
+            verbose=FALSE)
+SVMr
+
+
+bestTuneSVMr <-  function(svmrmodel, sigma=FALSE, C=FALSE){
+  # Función que ayuda a obtener el mejor resultado obtenido en un modelo SUPPORT VECTOR MACHINE - RADIAL
+  bSigma <- svmrmodel$bestTune$sigma
+  bC <- svmrmodel$bestTune$C
+  # Cojo los parámetros de la función si están establecidos
+  if (sigma != FALSE) {bSigma <- sigma}
+  if (C != FALSE) {bC <- C}
+  svmrmodel$results[svmrmodel$results$sigma == bSigma &
+                      svmrmodel$results$C == bC,]  
+}
+
+```
 
 
 
@@ -329,12 +437,33 @@ Realizamos una comparativa de la precisión todos los modelos anteriores
 
 ``` {r}
 nnettune <- bestTuneNnet(rednnet)
+bagtune <- bag$results
 rftune <- bestTuneRf(rf)
 gbmtune <- bestTuneGbm(gbm)
 xgbmtune <- bestTuneXgbm(xgbm)
+svmltune <- bestTuneSVMl(SVMl)
+svmptune <- bestTuneSVMp(SVMp)
+svmrtune <- bestTuneSVMr(SVMr)
 
-models = c(reg$method, rednnet$method, rf$method, gbm$method, xgbm$method)
-accuracies = c(reg$results$Accuracy, nnettune$Accuracy, rftune$Accuracy, gbmtune$Accuracy, xgbmtune$Accuracy)
+models = c(reg$method, 
+           rednnet$method, 
+           'bagging', 
+           rf$method, 
+           gbm$method, 
+           xgbm$method, 
+           SVMl$method,
+           SVMp$method,
+           SVMr$method)
+
+accuracies = c(reg$results$Accuracy, 
+               nnettune$Accuracy, 
+               bagtune$Accuracy, 
+               rftune$Accuracy, 
+               gbmtune$Accuracy, 
+               xgbmtune$Accuracy,
+               svmltune$Accuracy,
+               svmptune$Accuracy,
+               svmrtune$Accuracy)
   
 comparation <- data.frame("Model" = models, "Accuracy" = accuracies)
 comparation[order(comparation$Accuracy, decreasing = TRUE),]
@@ -372,19 +501,16 @@ avnet<-cruzadaavnnetbin(data=students.df.s,
 avnet$modelo="AvNet"
 
 
-arbol<-cruzadaarbolbin(data=students.df.s,
- vardep=vardep,listconti=variables,
- listclass=c(""), grupos=4,sinicio=1234,repe=5)
-
-arbol$modelo="Árbol"
-
-
 bag<-cruzadarfbin(data=students.df.s,
   vardep=vardep,listconti=variables,
   listclass=c(""),
-  grupos=4,sinicio=1234,repe=5,nodesize=10,
-  ntree=1000,replace=TRUE,
-  mtry=rftune$mtry)
+  grupos=4,sinicio=1234,
+  repe=5,
+  nodesize=10,
+  ntree=5000,
+  sampsize=200,
+  replace=TRUE,
+  mtry=bagtune$mtry)
 
 bag$modelo="Bag"
 
@@ -392,7 +518,10 @@ bag$modelo="Bag"
 rf<-cruzadarfbin(data=students.df.s, vardep=vardep,
  listconti=variables, listclass=c(""),
  grupos=4,sinicio=1234,repe=5,nodesize=10,
- mtry=6,ntree=3000,replace=TRUE,sampsize=150)
+ mtry=rftune$mtry, # mtry obtenido en tuneo
+ ntree=3000,
+ replace=TRUE,
+ sampsize=150)
 
 rf$modelo="RF"
 
@@ -426,7 +555,8 @@ xgbm$modelo="xgbm"
 svm<-cruzadaSVMbin(data=students.df.s,
  vardep=vardep,listconti=variables,
 listclass=c(""),
-  grupos=4,sinicio=1234,repe=5,C=0.01)
+  grupos=4,sinicio=1234,repe=5,
+  C=svmltune$C) # Parámetro obtenido del tuneo
 
 svm$modelo="SVM"
 
@@ -434,7 +564,10 @@ svm$modelo="SVM"
 svmp<-cruzadaSVMbinPoly(data=students.df.s,
  vardep=vardep,listconti=variables,
 listclass=c(""),
-  grupos=4,sinicio=1234,repe=5,C=2,degree=3,scale=0.1)
+  grupos=4,sinicio=1234,repe=5,
+  C=svmptune$C,
+  degree=svmptune$degree,
+  scale=svmptune$scale)
 
 svmp$modelo="SVMPoly"
 
@@ -443,13 +576,14 @@ svmrbf<-cruzadaSVMbinRBF(data=students.df.s, vardep=vardep,
    listconti=variables,
  listclass=c(""),
   grupos=4,sinicio=1234,repe=5,
-  C=1,sigma=0.1)
+  C=svmrtune$C,
+  sigma=svmrtune$sigma)
 
 svmrbf$modelo="SVMRBF"
 
 
 
-union<-rbind(logi,avnet,arbol,bag,rf, gbm, xgbm, svm, svmp, svmrbf)
+union<-rbind(logi,avnet,bag,rf, gbm, xgbm, svm, svmp, svmrbf)
 
 par(cex.axis=0.6, cex=1, las=1)
 boxplot(data=union,tasa~modelo,main="TASA FALLOS")
