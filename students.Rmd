@@ -11,8 +11,10 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
 library(readtext)
 library(gplots)
+library(ggplot2)
 library(dummies)
 library(dplyr)
 library(bnpa)
@@ -21,6 +23,11 @@ library(NeuralNetTools)
 library(caret)
 ```
 
+Cómo dataset se ha escogido un conjunto de alumnos de un colegio, los datos muestran información sobre cada uno de los alumnos en lo relativo a su vida personal (dirección de vivienda, trabajo de sus padres, tamaño de la familia...) y datos relativos a sus interacciones con el estudio (Tiempo de estudio, actividades extracurriculares, tiempo que dedica el alumno al estudio...).
+
+El objetivo de esta práctica será averiguar el conjunto de alumnos que van a realizar estudios superiores con la información que tenemos en el dataset.
+
+A continuación mostraré un poco de información sobre los datos contenidos en el documento:
 
 ``` {r}
 students.csv <- file.path(getwd(), 'student-por.csv')
@@ -36,6 +43,7 @@ El objetivo de este apartado es obtener las mejores variables que nos permitan o
 
 
 #### LIMPIEZA DE NA
+
 No realizamos supresión de NA dado que no hay ninguno en el fichero.
 
 ``` {r}
@@ -53,22 +61,21 @@ students.bis <- STUDENTS[,-which(names(STUDENTS) == vardep)]
 continuas <- names(select_if(students.bis, is.integer))
 categoricas <- names(select_if(students.bis, is.factor))
 
-
 cat("Nuestra variable objetivo será: ",vardep, "\n\nVariables continuas: ",continuas, "\n\nVariables categoricas: ",categoricas)
 ```
 
 #### CREACIÓN DE VARIABLES DUMMY
 
-Generamos variables dummy a partir de nuestras variables categóricas. En nuestro caso lo realizamos de todas dado que las variables categóricas no contienen un número demasiado elevado de valores diferentes.
+Generamos variables dummy a partir de nuestras variables categóricas. En nuestro caso generaremos variables dummies con todas dado que las variables categóricas no contienen un número demasiado elevado de valores diferentes.
 
-``` {r echo=FALSE}
+``` {r warning = FALSE}
 students.df<- dummy.data.frame(STUDENTS, categoricas, sep = ".")
 ```
 
 
 #### ESTANDARIZACIÓN DE VARIABLES
 
-A continuación estandarizamos las variables continuas. Para ello realizamos la media y desviación típica de las contínuas y a continuación las estandarizamos. Para trabajar ahora con todas las variables como continuas, las uno a las variables dummy generadas en el paso anterior.
+A continuación estandarizamos las variables continuas. Primero realizamos la media y desviación típica de las contínuas y a continuación las estandarizamos. Para trabajar ahora con todas las variables como continuas, las uno a las variables dummy generadas en el paso anterior.
 
 ```{r}
 
@@ -84,10 +91,10 @@ students.df.s <- cbind(students.df.bis, students.df[,-numerocont])
 
 #### SELECCIÓN DE VARIABLES
 
-El primer paso en la selección de las variables es suprimir de las variables dummy una variable, dado que esta puede ser obtenida como una negación del resto de las variables.
+El primer paso en la selección de las variables es suprimir de las variables dummy una variable, dado que esta puede ser obtenida con un cálculo del resto de las variables.
 
 
-``` {r}
+``` {r echo = FALSE}
 continuas <- c("age", "Medu", "Fedu", "traveltime", "studytime", "failures", 
 "famrel", "freetime", "goout", "Dalc", "Walc", "health", "absences", 
 "G1", "G2", "G3", "school.GP", "sex.M", 
@@ -117,8 +124,9 @@ cat("Variables continuas: ",continuas, "\n\nVariables categoricas: ",categoricas
 
 Para la selección de variables hacemos la búsqueda mediante el uso de la medida de ajuste AIC. Para ejecutar los algoritmos lo realizaremos mediante el método stepwise que que va incluyendo y sacando variables con el objetivo de optimizar la selección.
 
+Lo que conseguimos al realizar estas operaciones es obtener el conjunto de variables que tienen mejores cualidades para predecir.
 
-``` {r}
+``` {r warning = FALSE}
 full<-glm(factor(higher)~., data=students.df.s, family = binomial(link="logit"))
 null<-glm(factor(higher)~1, data=students.df.s, family = binomial(link="logit"))
 
@@ -142,7 +150,8 @@ control<-trainControl(method = "repeatedcv",number=4,savePredictions = "all")
 ```
 
 ## COMPARACIÓN DE MODELOS
-#### MODELO CON REGRESIÓN LINEAL
+
+#### REGRESIÓN LINEAL
 
 Modelo con regresión lineal, este no tendrá rejilla porque no tiene hiperparámetros.
 
@@ -155,11 +164,11 @@ reg<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+
 reg
 ```
 
-#### MODELO CON RED NEURONAL
+#### RED NEURONAL
 
 Ahora vamos a generar un modelo con redes neuronales. Para comprobar su eficacia realizaremos diferentes tuneos hasta obtener el mejor resultado. La forma que tenemos de realizar el tuneado mediante el uso de una rejilla.
 
-``` {r}
+``` {r warning = FALSE}
 nnetgrid <-  expand.grid(size=c(1,2,3,5,10),
                          decay=c(0.01,0.1,0.001),
                          bag=FALSE)
@@ -175,7 +184,11 @@ rednnet<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.hea
                 trace=FALSE)
 rednnet
 
+```
 
+Con todos los modelos se va a generar una función que permita obtener el mejor tuneo. Esta función permitirá obtener los hiperparámetros y la precisión obtenida con el modelo. Nos ayudará a ajustar mejor cada uno de los modelos  en la parte del ensamblado de modelos.
+
+``` {r}
 bestTuneNnet <- function(nnetmodel, size=FALSE, decay=FALSE){
   # Función que ayuda a obtener el mejor resultado obtenido en un modelo NEURAL NET
   bestSize <- rednnet$bestTune$size
@@ -183,8 +196,11 @@ bestTuneNnet <- function(nnetmodel, size=FALSE, decay=FALSE){
   # Cojo los parámetros de la función si están establecidos
   if (size != FALSE) {bestSize <- size}
   if (decay != FALSE) {bestDecay <- decay}
+  
+  nnetmodel$results$method = nnetmodel$method
   nnetmodel$results[nnetmodel$results$size == bestSize & 
                       nnetmodel$results$decay == bestDecay,]
+  
 }
 ```
 
@@ -205,8 +221,9 @@ bag<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+
            sampsize=200,
            replace=TRUE,
            trace=FALSE)
-bag
 
+bag$results$method = 'bagging'
+bag
 ```
 
 #### RANDOM FOREST
@@ -226,12 +243,17 @@ rf<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+s
            trace=FALSE)
 
 rf
+```
 
+
+``` {r echo = FALSE}
 bestTuneRf <-  function(rfmodel, mtry=FALSE){
   # Función que ayuda a obtener el mejor resultado obtenido en un modelo RANDOM FOREST
   bMtry <- rfmodel$bestTune$mtry
   # Cojo los parámetros de la función si están establecidos
   if (mtry != FALSE) {bMtry <- mtry}
+  
+  rfmodel$results$method <- rfmodel$method
   rfmodel$results[rfmodel$results$mtry == bMtry,]  
 }
 
@@ -241,10 +263,10 @@ bestTuneRf <-  function(rfmodel, mtry=FALSE){
 
 ``` {r}
 set.seed(1234)
-gbmgrid<-expand.grid(shrinkage=c(0.1,0.05,0.01),
-                     n.minobsinnode=c(10,20),
-                     n.trees=c(100,500,1000),
-                     interaction.depth=c(1,2,3))
+gbmgrid<-expand.grid(n.trees=c(500,1000,2000),
+                     interaction.depth=c(1,2,3),
+                     shrinkage=c(0.01,0.05,0.1),
+                     n.minobsinnode=c(20,30,40))
 
 gbm<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
             data=students.df.s,
@@ -257,7 +279,10 @@ gbm<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+
 
 gbm
 
+```
 
+
+``` {r echo = FALSE}
 bestTuneGbm <-  function(gbmModel, n.trees=FALSE, shrinkage=FALSE, n.minobsinnode=FALSE, interaction.depth=FALSE){
   # Función que ayuda a obtener el mejor resultado obtenido en un modelo GRADIENT BOOSTING MACHINE
   bTrees <- gbmModel$bestTune$n.trees
@@ -269,6 +294,8 @@ bestTuneGbm <-  function(gbmModel, n.trees=FALSE, shrinkage=FALSE, n.minobsinnod
   if (shrinkage != FALSE) {bShrink <- shrinkage}
   if (n.minobsinnode != FALSE) {bMin <- n.minobsinnode}
   if (interaction.depth != FALSE) {bInt <- interaction.depth}
+  
+  gbmModel$results$method <-gbmModel$method
   #Devuelve el mejor resultado para los parámetros introducidos
   gbmModel$results[gbmModel$results$n.trees == bTrees & 
                      gbmModel$results$shrinkage == bShrink & 
@@ -285,10 +312,13 @@ bestTuneGbm <-  function(gbmModel, n.trees=FALSE, shrinkage=FALSE, n.minobsinnod
 ``` {r}
 set.seed(1234)
 xgbmgrid<-expand.grid(
-  min_child_weight=c(10),
-  eta=c(0.1,0.05,0.03,0.01),
-  nrounds=c(100,500,1000),
-  max_depth=6,gamma=0,colsample_bytree=1,subsample=1)
+  nrounds=c(5,10,50),
+  max_depth=6,
+  eta=c(0.1,0.5,1,5),
+  gamma=0,
+  colsample_bytree=1,
+  min_child_weight=c(5,10,20),
+  subsample=1)
 
 xgbm<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
              data=students.df.s,
@@ -298,8 +328,10 @@ xgbm<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health
              verbose=FALSE)
 
 xgbm
+```
 
 
+``` {r echo = FALSE}
 bestTuneXgbm <-  function(XgbmModel, 
                           nrounds = FALSE, 
                           max_depth = FALSE, 
@@ -328,6 +360,7 @@ bestTuneXgbm <-  function(XgbmModel,
   if (min_child_weight != FALSE) { bmin_child_weight <- min_child_weight }
   if (subsample != FALSE) { bsubsample <- subsample }
   
+  XgbmModel$results$method <- XgbmModel$method
   #Devuelve el mejor resultado para los parámetros introducidos
   XgbmModel$results[XgbmModel$results$nrounds == bnrounds &
                       XgbmModel$results$max_depth == bmax_depth &
@@ -345,7 +378,7 @@ bestTuneXgbm <-  function(XgbmModel,
 ``` {r}
 set.seed(1234)
 
-SVMgrid<-expand.grid(C=c(0.01,0.1,0.2,0.3,0.5,1,2))
+SVMgrid<-expand.grid(C=c(0.01,0.1,0.2,0.3,0.5))
 
 SVMl<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
             data=students.df.s,
@@ -355,13 +388,16 @@ SVMl<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health
             verbose=FALSE)
 
 SVMl
+```
 
 
+``` {r echo = FALSE}
 bestTuneSVMl <-  function(svmlmodel, C=FALSE){
   # Función que ayuda a obtener el mejor resultado obtenido en un modelo SUPPORT VECTOR MACHINE - LINEAR
   bC <- svmlmodel$bestTune$C
   # Cojo los parámetros de la función si están establecidos
   if (C != FALSE) {bC <- C}
+  svmlmodel$results$method <- svmlmodel$method
   svmlmodel$results[svmlmodel$results$C == bC,]  
 }
 
@@ -373,7 +409,7 @@ bestTuneSVMl <-  function(svmlmodel, C=FALSE){
 set.seed(1234)
 SVMgrid<-expand.grid(degree=c(1,2,3),
                      scale=c(5:7),
-                     C=c(3:6))
+                     C=c(3:5))
 
 
 SVMp<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
@@ -383,8 +419,10 @@ SVMp<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health
             tuneGrid=SVMgrid,
             verbose=FALSE)
 SVMp
+```
 
 
+``` {r echo = FALSE}
 bestTuneSVMp <-  function(svmpmodel, degree=FALSE, scale=FALSE, C=FALSE){
   # Función que ayuda a obtener el mejor resultado obtenido en un modelo SUPPORT VECTOR MACHINE - POLYNOMIAL
   bDegree <- svmpmodel$bestTune$degree
@@ -394,6 +432,8 @@ bestTuneSVMp <-  function(svmpmodel, degree=FALSE, scale=FALSE, C=FALSE){
   if (degree != FALSE) {bDegree <- degree}
   if (scale != FALSE) {bScale <- scale}
   if (C != FALSE) {bC <- C}
+  
+  svmpmodel$results$method <- svmpmodel$method
   svmpmodel$results[svmpmodel$results$degree == bDegree &
                       svmpmodel$results$scale == bScale &
                       svmpmodel$results$C == bC,]  
@@ -406,8 +446,8 @@ bestTuneSVMp <-  function(svmpmodel, degree=FALSE, scale=FALSE, C=FALSE){
 
 ``` {r}
 set.seed(1234)
-SVMgrid<-expand.grid(sigma=c(0.01,0.05,0.1,1),
-                     C=c(1:5))
+SVMgrid<-expand.grid(sigma=c(0.01,0.05,0.1),
+                     C=c(1:4))
 
 SVMr<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health+schoolsup.yes+Walc+famrel+Fedu,
             data=students.df.s,
@@ -416,8 +456,10 @@ SVMr<- train(factor(higher)~G1+age+studytime+G3+school.GP+famsup.yes+Mjob.health
             tuneGrid=SVMgrid,
             verbose=FALSE)
 SVMr
+```
 
 
+``` {r echo = FALSE}
 bestTuneSVMr <-  function(svmrmodel, sigma=FALSE, C=FALSE){
   # Función que ayuda a obtener el mejor resultado obtenido en un modelo SUPPORT VECTOR MACHINE - RADIAL
   bSigma <- svmrmodel$bestTune$sigma
@@ -425,6 +467,8 @@ bestTuneSVMr <-  function(svmrmodel, sigma=FALSE, C=FALSE){
   # Cojo los parámetros de la función si están establecidos
   if (sigma != FALSE) {bSigma <- sigma}
   if (C != FALSE) {bC <- C}
+  
+  svmrmodel$results$method <- svmrmodel$method
   svmrmodel$results[svmrmodel$results$sigma == bSigma &
                       svmrmodel$results$C == bC,]  
 }
@@ -446,14 +490,14 @@ svmptune <- bestTuneSVMp(SVMp)
 svmrtune <- bestTuneSVMr(SVMr)
 
 models = c(reg$method, 
-           rednnet$method, 
-           'bagging', 
-           rf$method, 
-           gbm$method, 
-           xgbm$method, 
-           SVMl$method,
-           SVMp$method,
-           SVMr$method)
+           nnettune$method, 
+           bagtune$method, 
+           rftune$method, 
+           gbmtune$method, 
+           xgbmtune$method, 
+           svmltune$method,
+           svmptune$method,
+           svmrtune$method)
 
 accuracies = c(reg$results$Accuracy, 
                nnettune$Accuracy, 
@@ -471,77 +515,103 @@ comparation[order(comparation$Accuracy, decreasing = TRUE),]
 
 
 
-# VOY POR AQUÍ, FALTA SEGUIR AJUSTANDO LOS MODELOS PARA METER LOS TUNEOS OBTENIDOS EN EL SIGUIENTE APARTADO
-
 ## PREPARACIÓN DE MODELOS PARA ENSAMBLADO
-``` {r}
-source ("library/cruzadas avnnet y log binaria.R")
-source ("library/cruzada arbolbin.R")
-source ("library/cruzada rf binaria.R")
-source ("library/cruzada gbm binaria.R")
-source ("library/cruzada xgboost binaria.R")
-source ("library/cruzada SVM binaria lineal.R")
-source ("library/cruzada SVM binaria polinomial.R")
-source ("library/cruzada SVM binaria RBF.R")
+
+Hemos obtenido anteriormente los resultados que nos permiten obtener los hiperparámetros necesarios de cada modelo con una precisión bastante alta, en concreto para el modelo Xgboost obtuvimos la mayor precicisón. A continuación realizaremos un análisis mediante el uso de validación cruzada repetida para todos los modelos de nuevo en los que intentaremos obtener sus resultados AUC y Tasa de Fallos utilizando los resultados obtenidos anteriormente.
+
+La validación cruzada se hará en grupos de 4 realizando la repetición 5 veces.
+
+``` {r echo = FALSE, warning = FALSE}
+source ("library/cruzadas ensamblado binaria fuente.R")
+
+grupos<-4
+sinicio<-1234
+repe<-5
 
 
 logi<-cruzadalogistica(data=students.df.s,
  vardep=vardep,listconti=variables,
  listclass=c(""), grupos=4,sinicio=1234,repe=5)
 
-logi$modelo="Logística"
+logibis<-as.data.frame(logi[1])
+logibis$modelo<-"Logistica"
+predi1<-as.data.frame(logi[2])
+predi1$logi<-predi1$Yes
 
 
 # Tuneamos con los datos obtenidos en el ajuste anterior
 avnet<-cruzadaavnnetbin(data=students.df.s,
  vardep=vardep,listconti=variables,
- listclass=c(""), grupos=4,sinicio=1234,repe=5,
+ listclass=c(""), 
+ grupos=grupos,
+ sinicio=sinicio,
+ repe=repe,
  size=c(nnettune$size),decay=c(nnettune$decay))
 
-avnet$modelo="AvNet"
+avnetbis<-as.data.frame(avnet[1])
+avnetbis$modelo<-"AvNet"
+predi2<-as.data.frame(avnet[2])
+predi2$avnnet<-predi2$Yes
 
 
 bag<-cruzadarfbin(data=students.df.s,
   vardep=vardep,listconti=variables,
   listclass=c(""),
-  grupos=4,sinicio=1234,
-  repe=5,
+  grupos=grupos,
+  sinicio=sinicio,
+  repe=repe,
   nodesize=10,
   ntree=5000,
   sampsize=200,
   replace=TRUE,
   mtry=bagtune$mtry)
 
-bag$modelo="Bag"
+bagbis<-as.data.frame(bag[1])
+bagbis$modelo="Bag"
+predi3<-as.data.frame(bag[2])
+predi3$bagging<-predi3$Yes
 
 
 rf<-cruzadarfbin(data=students.df.s, vardep=vardep,
  listconti=variables, listclass=c(""),
- grupos=4,sinicio=1234,repe=5,nodesize=10,
+ grupos=grupos,
+ sinicio=sinicio,
+ repe=repe,
+ nodesize=10,
  mtry=rftune$mtry, # mtry obtenido en tuneo
  ntree=3000,
  replace=TRUE,
  sampsize=150)
 
-rf$modelo="RF"
+rfbis<-as.data.frame(rf[1])
+rfbis$modelo="RF"
+predi4<-as.data.frame(rf[2])
+predi4$rf<-predi4$Yes
 
 
 gbm<-cruzadagbmbin(data=students.df.s,
   vardep=vardep,listconti=variables,
   listclass=c(""),
-  grupos=4,sinicio=1234,repe=5,
+  grupos=grupos,
+  sinicio=sinicio,
+  repe=repe,
   n.minobsinnode=gbmtune$n.minobsinnode,
   shrinkage=gbmtune$shrinkage,
   n.trees=gbmtune$n.trees,
   interaction.depth=gbmtune$interaction.depth)
 
-gbm$modelo="gbm"
+gbmbis<-as.data.frame(gbm[1])
+gbmbis$modelo="gbm"
+predi5<-as.data.frame(gbm[2])
+predi5$gbm<-predi5$Yes
 
 
 xgbm<-cruzadaxgbmbin(data=students.df.s,
- vardep=vardep,listconti=variables,
+  vardep=vardep,listconti=variables,
   listclass=c(""),
-  grupos=4,sinicio=1234,repe=5,
+  grupos=grupos,
+  sinicio=sinicio,
+  repe=repe,
   min_child_weight=xgbmtune$min_child_weight,
   eta=xgbmtune$eta,
   nrounds=xgbmtune$nrounds,
@@ -550,44 +620,218 @@ xgbm<-cruzadaxgbmbin(data=students.df.s,
   colsample_bytree=xgbmtune$colsample_bytree,
   subsample=xgbmtune$subsample)
 
-xgbm$modelo="xgbm"
+xgbmbis<-as.data.frame(xgbm[1])
+xgbmbis$modelo="xgbm"
+predi6<-as.data.frame(xgbm[2])
+predi6$xgbm<-predi6$Yes
+
 
 svm<-cruzadaSVMbin(data=students.df.s,
- vardep=vardep,listconti=variables,
-listclass=c(""),
-  grupos=4,sinicio=1234,repe=5,
+  vardep=vardep,listconti=variables,
+  listclass=c(""),
+  grupos=grupos,
+  sinicio=sinicio,
+  repe=repe,
   C=svmltune$C) # Parámetro obtenido del tuneo
 
-svm$modelo="SVM"
+svmbis<-as.data.frame(svm[1])
+svmbis$modelo="SVM"
+predi7<-as.data.frame(svm[2])
+predi7$svmLinear<-predi7$Yes
 
 
 svmp<-cruzadaSVMbinPoly(data=students.df.s,
- vardep=vardep,listconti=variables,
-listclass=c(""),
-  grupos=4,sinicio=1234,repe=5,
+  vardep=vardep,listconti=variables,
+  listclass=c(""),
+  grupos=grupos,
+  sinicio=sinicio,
+  repe=repe,
   C=svmptune$C,
   degree=svmptune$degree,
   scale=svmptune$scale)
 
-svmp$modelo="SVMPoly"
+svmpbis<-as.data.frame(svmp[1])
+svmpbis$modelo="SVMPoly"
+predi8<-as.data.frame(svmp[2])
+predi8$svmPoly<-predi8$Yes
 
 
 svmrbf<-cruzadaSVMbinRBF(data=students.df.s, vardep=vardep,
-   listconti=variables,
- listclass=c(""),
-  grupos=4,sinicio=1234,repe=5,
+  listconti=variables,
+  listclass=c(""),
+  grupos=grupos,
+  sinicio=sinicio,
+  repe=repe,
   C=svmrtune$C,
   sigma=svmrtune$sigma)
 
-svmrbf$modelo="SVMRBF"
+svmrbfbis<-as.data.frame(svmrbf[1])
+svmrbfbis$modelo="SVMRBF"
+predi9<-as.data.frame(svmrbf[2])
+predi9$svmRadial<-predi9$Yes
 
 
 
-union<-rbind(logi,avnet,bag,rf, gbm, xgbm, svm, svmp, svmrbf)
+union<-rbind(logibis,avnetbis,bagbis,rfbis,gbmbis,xgbmbis,svmbis,svmpbis,svmrbfbis)
+```
 
+El resultado obtenido es:
+
+``` {r}
+union$modelo <- with(union,
+                       reorder(modelo,tasa, mean))
 par(cex.axis=0.6, cex=1, las=1)
 boxplot(data=union,tasa~modelo,main="TASA FALLOS")
+
+union$modelo <- with(union,
+                       reorder(modelo,auc, mean))
+par(cex.axis=0.6, cex=1, las=1)
 boxplot(data=union,auc~modelo,main="AUC")
 
 ```
 
+#### ENSAMBLADO DE MODELOS
+
+El mejor resultado AUC ha sido para la regresión logística, no obstante la menor ´Tasa de fallos' la obtuvimos en el modelo SVM RBF. Esto no implica que sea el mejor resultado que podemos conseguir, para ello intentaremos mediante el uso de ensamblado, de alguna manera, fusionar varios modelos para intentar obtener un nuevo modelo con objeto de mejorar si es posible la precisión obtenida con la regresión logística.
+
+```{r echo = FALSE}
+
+unipredi<-cbind(predi1,predi2,predi3,predi4,predi5,predi6,predi7,predi8,predi9)
+unipredi<- unipredi[, !duplicated(colnames(unipredi))]
+
+```
+
+Fusionaremos la logística con SVM en todas sus variantes y con las redes neuronales que son por un lado los que mejores resultados AUC nos han arrojado y por otro lado los que menor 'Tasa de fallos' nos han dado.
+
+```{r}
+
+unipredi$predi10<-(unipredi$logi+unipredi$svmPoly)/2
+unipredi$predi11<-(unipredi$logi+unipredi$svmLinear)/2
+unipredi$predi12<-(unipredi$logi+unipredi$avnnet)/2
+unipredi$predi13<-(unipredi$svmLinear+unipredi$svmPoly)/2
+unipredi$predi14<-(unipredi$avnnet+unipredi$svmRadial)/2
+
+
+unipredi$predi20<-(unipredi$logi+unipredi$avnnet+unipredi$svmLinear)/3
+unipredi$predi21<-(unipredi$logi+unipredi$avnnet+unipredi$svmPoly)/3
+
+```
+
+
+```{r}
+listado <- c("logi", "bagging", "avnnet", "rf",
+"gbm", "xgbm", "svmLinear", "svmPoly", "svmRadial",
+"predi10", "predi11", "predi12", "predi13", "predi14","predi20", "predi21")
+
+listado
+```
+
+
+```{r warning = FALSE, echo = FALSE}
+
+# Cambio a Yes, No, todas las predicciones
+
+# Defino funcion tasafallos
+
+tasafallos<-function(x,y) {
+   confu<-confusionMatrix(x,y)
+   tasa<-confu[[3]][1]
+   return(tasa)
+}
+
+auc<-function(x,y) {
+   curvaroc<-roc(response=x,predictor=y)
+   auc<-curvaroc$auc
+   return(auc)
+  }
+
+# Se obtiene el numero de repeticiones CV y se calculan las medias por repe en
+# el data frame medias0
+
+repeticiones<-nlevels(factor(unipredi$Rep))
+unipredi$Rep<-as.factor(unipredi$Rep)
+unipredi$Rep<-as.numeric(unipredi$Rep)
+
+
+medias0<-data.frame(c())
+for (prediccion in listado)
+{
+    unipredi$proba<-unipredi[,prediccion]
+    unipredi[,prediccion]<-ifelse(unipredi[,prediccion]>0.5,"Yes","No")
+    for (repe in 1:repeticiones)
+    {
+        paso <- unipredi[(unipredi$Rep==repe),]
+        pre<-factor(paso[,prediccion])
+        archi<-paso[,c("proba","obs")]
+        archi<-archi[order(archi$proba),]
+        obs<-paso[,c("obs")]
+        tasa=1-tasafallos(pre,obs)
+        t<-as.data.frame(tasa)
+        t$modelo<-prediccion
+        auc<-auc(archi$obs,archi$proba)
+        t$auc<-auc
+        medias0<-rbind(medias0,t)
+    }
+}
+
+
+# Finalmente boxplot
+medias0$modelo <- with(medias0,
+                       reorder(modelo,tasa, mean))
+par(cex.axis=0.5,las=2)
+boxplot(data=medias0,tasa~modelo,col="pink",main="TASA FALLOS")
+
+# Para AUC se utiliza la variable auc del archivo medias0
+medias0$modelo <- with(medias0,
+                       reorder(modelo,auc, mean))
+par(cex.axis=0.5,las=2)
+boxplot(data=medias0,auc~modelo,col="pink",main="AUC")
+```
+
+Tras realizar el ensamblado, podemos observar como los mejores resultados han sido modificados, ya no tenemos el mejor resultado con la regresión logística si no que por el contrario, el ensamblado entre la regresión logística, el SVM Lineal y la red neuronal nos ha dado un resultado con un AUC mayor. 
+
+Comentando los mejores resultados del ensamblado que han sido para:
+- predi20: Logística, Red Neuronal y SVM Lineal
+- predi21: Logística, Red Neuronal y SVM Polinomial
+- predi12: Logística y Red Neuronal
+
+Los tres mejores modelos tienen un sesgo bastante bajo, no hay un rango en el que se concentren la mayoría de los resultados, sin embargo predi20 seguramente haya sido el que mejor resultado ha obtenido de todo debido a que tiene menor varianza respecto a los anteriores. 
+
+```{r}
+
+unipredi<-cbind(predi1,predi2,predi3,predi4,predi5,predi6,predi7,predi8,predi9)
+unipredi<- unipredi[, !duplicated(colnames(unipredi))]
+
+unipredi$predi12<-(unipredi$logi+unipredi$avnnet)/2
+
+unipredi$predi20<-(unipredi$logi+unipredi$avnnet+unipredi$svmLinear)/3
+unipredi$predi21<-(unipredi$logi+unipredi$avnnet+unipredi$svmPoly)/3
+
+unigraf<-unipredi[unipredi$Rep=="Rep1",]
+
+qplot(logi,avnnet,data=unigraf,colour=obs)+
+ geom_hline(yintercept=0.5, color="black", size=1)+
+ geom_vline(xintercept=0.5, color="black", size=1)
+
+qplot(logi,predi12,data=unigraf,colour=obs)+
+ geom_hline(yintercept=0.5, color="black", size=1)+
+ geom_vline(xintercept=0.5, color="black", size=1)
+
+qplot(logi,predi20,data=unigraf,colour=obs)+
+ geom_hline(yintercept=0.5, color="black", size=1)+
+ geom_vline(xintercept=0.5, color="black", size=1)
+
+qplot(predi12,predi20,data=unigraf,colour=obs)+
+ geom_hline(yintercept=0.5, color="black", size=1)+
+ geom_vline(xintercept=0.5, color="black", size=1)
+
+qplot(logi,predi21,data=unigraf,colour=obs)+
+ geom_hline(yintercept=0.5, color="black", size=1)+
+ geom_vline(xintercept=0.5, color="black", size=1)
+
+```
+
+
+## CONCLUSIONES
+
+La obtención de un resultado bastante certero para la predicción con el modelo realizado mediante una regresión logística 
